@@ -1,6 +1,10 @@
 package Qinu::View;
 
+use Data::Dumper;
 use Template;
+
+use base qw(Class::Accessor::Fast);
+__PACKAGE__->mk_accessors(qw(qinu));
 
 sub new {
     my ($self, %args) = @_;
@@ -108,7 +112,8 @@ sub mk_link_js {
         if ($each =~ /^(http(?:s)*)\:/) {
             my $protocol_tmp = $1;
             if ($self->{qinu}->current_protocol ne $protocol_tmp) {
-                my $protocol;                if ($self->{qinu}->current_protocol eq 'https') {
+                my $protocol;
+                if ($self->{qinu}->current_protocol eq 'https') {
                     $protocol = $self->{qinu}->conf->{protocol_secure};
                 }
                 else {
@@ -148,6 +153,44 @@ sub delete_script {
     $template =~ s/\<(?:script(?:\s.*?|)|\/script)\>//sg;
 
     return $template;
+}
+
+sub mk_option_year {
+    my ($self, %args) = @_;
+
+    my $keys = [
+        'from_year',
+    ];
+    if (!$self->{qinu}->util->check_args_defined_and_null(keys => $keys, values => \%args)) {
+        return;
+    }
+
+    my $from_year = $args{from_year};
+
+    my $option;
+    $option = $self->{qinu}->http->mk_option_num_base(from_num => $from_year, to_num => $self->{qinu}->{year_current});
+
+    return $option;
+}
+
+sub mk_page_link {
+    my ($self, %args) = @_;
+
+    my %page_fix = ();
+
+    my @keys = qw(data_all limit page_current);
+    if (!$self->qinu->util->check_args_defined_and_null(keys => \@keys, values => \%args)) {
+        return %page_fix;
+    }
+
+    if (scalar @{$args{data_all}} > $args{page_current} * $args{limit}) {
+        $page_fix{page_next} = $args{page_current} + 1;
+    }
+    if ($args{page_current} > 1) {
+        $page_fix{page_prev} = $args{page_current} - 1;
+    }
+
+    return %page_fix;
 }
 
 1;

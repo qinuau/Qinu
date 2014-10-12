@@ -1,0 +1,27 @@
+#!/usr/bin/env perl
+
+use feature qw(:5.10);
+use strict;
+use warnings;
+
+use CGI::Carp qw(fatalsToBrowser);
+use FCGI;
+use Data::Dumper;
+use Qinu;
+
+# set stage type.
+my $type_stage = 'development';
+#my $type_stage = 'product';
+
+my $request = FCGI::Request();
+
+while($request->Accept() >= 0) {
+    # configure.
+    my %conf = (
+        fcgi_request => $request,
+        config_yaml => '[% dir_app %]/app/conf/conf_' . $type_stage . '.yml',
+    );
+
+    my $qinu = Qinu->new(%conf);
+    $qinu->_set_session;
+}

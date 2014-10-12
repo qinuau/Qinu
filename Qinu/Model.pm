@@ -1,10 +1,15 @@
 package Qinu::Model;
 
-use DBI;
-use Data::Dumper;
-
 use strict;
 use warnings;
+
+use DBI;
+use Data::Dumper;
+use DateTime;
+
+use base qw(Class::Accessor::Fast);
+
+__PACKAGE__->mk_accessors(qw(qinu));
 
 our $qinu;
 our $db_log;
@@ -12,7 +17,12 @@ our $db_log;
 sub new {
     my $self = shift;
     $qinu = shift;
-    bless {}, $self;
+
+    my $attr = {
+        qinu => $qinu,
+    };
+
+    bless $attr, $self;
 }
 
 sub db_connect {
@@ -98,6 +108,9 @@ sub db_logging {
     if (defined $conf{select_f}) {
         $select_f = $conf{select_f};
     }
+    if (defined $self->qinu->conf->{db_logging_select_f} && $self->qinu->conf->{db_logging_select_f}) {
+        $select_f = $self->qinu->conf->{db_logging_select_f};
+    }
 
     my $connect_f;
     if (defined $conf{connect_f}) {
@@ -180,7 +193,7 @@ sub db_exec {
     }
     my $sth;
     $sth = $dbh->prepare($sql) or $self->db_logging(sth => $sth, sql => $sql);
-    $sth->execute;
+    my $rv = $sth->execute;
     if ($qinu->{auto_commit} && $qinu->{auto_commit} == 0) {
         if (defined $DBI::errstr) {
             $dbh->rollback;
@@ -243,8 +256,8 @@ sub db_fetch_simple {
         return 0;
     }
 
-    my $val;
-    my @val;
+    my $val = [];
+    my @val = ();
     while ($val = $sth->fetchrow_hashref) {
         push(@val, $val);
     }
@@ -255,6 +268,512 @@ sub db_fetch_simple {
     else {
         return \@val;
     }
+}
+
+sub get_data_base {
+    my ($self, %args) = @_;
+
+    my $table;
+    if (defined $args{table} && $args{table} ne '') {
+        $table = $args{table};
+    }
+    else {
+        return [];
+    }
+
+    my $limit = "";
+    if (defined $args{limit} && defined $args{offset} && $args{limit} ne '' && $args{offset} ne '') {
+        $limit = ' LIMIT ' . $args{offset} . ', ' . $args{limit};
+    }
+    elsif (defined $args{limit} && $args{limit} ne '') {
+        $limit = ' LIMIT ' . $args{limit};
+    }
+
+    my $where = defined $args{where} && $args{where} ne '' ? " WHERE " . $args{where} : '';
+    my $having = defined $args{having} && $args{having} ne '' ? " HAVING " . $args{having} : '';
+    my $orderby = defined $args{orderby} && $args{orderby} ne '' ? ' ORDER BY ' . $args{orderby} : '';
+
+    my $dbh;
+    if (defined $args{dbh} && $args{dbh}) {
+        $dbh = $args{dbh};
+    }
+    else {
+        return [];
+    }
+
+    my $select = '*';
+    if (defined $args{select} && $args{select} ne '') {
+        $select = $args{select};
+    }
+
+    my $sql = "SELECT " . $select . " FROM " . $table . $where . $having . $orderby . $limit;
+    my $data = $self->db_fetch_simple(dbh => $dbh, sql => $sql);
+
+    return $data;
+}
+
+sub mk_regist_data {
+    my ($self, %args) = @_;
+
+    my $key_str = defined $args{key_str} ? $args{key_str} : [];
+    my $key_num = defined $args{key_num} ? $args{key_num} : [];
+    my $type = defined $args{type} ? $args{type} : '';
+
+    my $data;
+    my %data;
+    if (defined $args{data} && ref $args{data} eq 'HASH') {
+        $data = $args{data};
+        %data = %$data;
+    }
+    else {
+        return;
+    }
+
+    my $dbh;
+    if (!defined $args{dbh} || !$args{dbh}) {
+        return;
+    }
+    else {
+        $dbh = $args{dbh};
+    }
+
+    my $sql;
+    my $sql_key;
+    my $sql_val;
+
+    # type of string.
+    if (scalar @$key_str > 0) {
+        foreach my $key (@$key_str) {
+            if ($type eq 'update') {
+                $sql .= $key . ' = ';
+                if (defined $data{$key}) {
+                    $sql .= $dbh->quote($data{$key});
+                }
+                else {
+                    $sql .= "NULL";
+                }
+                $sql .= ", ";
+            }
+            else {
+                $sql_key .= $key . ', ';
+                if (defined $data{$key}) {
+                    $sql_val .= $dbh->quote($data{$key});
+                }
+                else {
+                    $sql_val .= "NULL";
+                }
+                $sql_val .= ", ";
+            }
+        }
+    }
+
+    # type of numeric.
+    if (scalar @$key_num > 0) {
+        foreach my $key (@$key_num) {
+            if ($type eq 'update') {
+                $sql .= $key . ' = ';
+                if (defined $data{$key} && $data{$key} ne '') {
+                    $sql .= $data{$key};
+                }
+                else {
+                    $sql .= "NULL";
+                }
+                $sql .= ", ";
+            }
+            else {
+                $sql_key .= $key . ', ';
+                if (defined $data{$key} && $data{$key} ne '') {
+                    $sql_val .= $data{$key};
+                }
+                else {
+                    $sql_val .= "NULL";
+                }
+                $sql_val .= ", ";
+            }
+        }
+    }
+
+    if ($type eq 'update') {
+        if ($sql) {
+            $sql = substr($sql, 0, -2);
+        }
+    }
+    else {
+        if ($sql_key ne '') {
+            $sql_key = substr($sql_key, 0, -2);
+            $sql_val = substr($sql_val, 0, -2);
+
+            $sql->{key} = $sql_key;
+            $sql->{val} = $sql_val;
+        }
+    }
+
+    return $sql;
+}
+
+sub sql_publish_span {
+    my ($self, %args) = @_;
+
+    my $dt = DateTime->now();
+    $dt->set_time_zone($self->qinu->conf->{time_zone});
+
+    my $ymdhms = $dt->ymd('-') . ' ' . $dt->hms(':');
+
+    my $sql;
+    $sql = "publish_start <= '" . $ymdhms . "' AND (publish_end IS NULL OR publish_end > '" . $ymdhms . "')";
+
+    return $sql;
+}
+
+sub quote_like {
+    my ($self, %args) = @_;
+
+    my $value = $args{value};
+
+    $value =~ s/(%|_)/\\$1/g;
+
+    return $value;
+}
+
+sub mk_sql {
+    my ($self, %args) = @_;
+
+    if (
+        !defined $args{type} || $args{type} eq '' ||
+        $args{type} !~ /^(insert|update)$/ || 
+        !defined $args{table_name} || $args{table_name} eq '' || 
+        #(
+        #    (!defined $args{fields_string} || scalar @{$args{fields_string}} == 0) && 
+        #    (!defined $args{fields_num} || scalar @{$args{fields_num}} == 0) && 
+        #    (!defined $args{fields_bool} || scalar @{$args{fields_bool}} == 0) && 
+        #    (!defined $args{add_data_string} || scalar @{$args{add_data_string}} == 0) && 
+        #    (!defined $args{add_data_num} || scalar @{$args{add_data_num}} == 0) && 
+        #    (!defined $args{add_data_bool} || scalar @{$args{add_data_bool}} == 0)
+        #) ||
+        !defined $args{dbh} || !$args{dbh}
+    ) {
+        return 0;
+    }
+
+    my $type = $args{type};
+    my $table_name = $args{table_name};
+    my $fields_string = defined $args{fields_string} ? $args{fields_string} : ();
+    my $fields_num = defined $args{fields_num} ? $args{fields_num} : ();
+    my $fields_bool = defined $args{fields_bool} ? $args{fields_bool} : ();
+    my $fields_datetime = defined $args{fields_datetime} ? $args{fields_datetime} : ();
+    my $fields_date = defined $args{fields_date} ? $args{fields_date} : ();
+    my $fields_time = defined $args{fields_time} ? $args{fields_time} : ();
+    my $data = defined $args{data} ? $args{data} : ();
+    my $add_data_string = defined $args{add_data_string} ? $args{add_data_string} : ();
+    my $add_data_num = defined $args{add_data_num} ? $args{add_data_num} : ();
+    my $add_data_bool = defined $args{add_data_bool} ? $args{add_data_bool} : ();
+    my $sql_add = defined $args{sql_add} ? $args{sql_add} : '';
+    my $config_form = defined $args{config_form} ? $args{config_form} : ();
+    my $dbh = $args{dbh};
+
+    my $quote_key = '';
+    if ($self->qinu->conf->{dbd} eq 'mysql') {
+        $quote_key = "`";
+    }
+
+    my $sql = "";
+    if ($type =~ /^insert$/) {
+        my $keys = '';
+        my $vals = '';
+        $sql = "INSERT INTO " . $quote_key . $table_name . $quote_key;
+
+        foreach my $key (@$fields_string) {
+            if (defined $data->{$key}) {
+                $keys .= $quote_key . $key . $quote_key . ", ";
+    
+                my $v_data = '';
+                if (ref $data->{$key} eq 'ARRAY') {
+                    foreach my $v_value (@{$data->{$key}}) {
+                        $v_data .= '+' . $v_value;
+                    }
+                    if ($v_data ne '') {
+                        $v_data .= '+';
+                    }
+                }
+                else {
+                    $v_data = $data->{$key};
+                }
+
+                my $value = $v_data;
+                $vals .= $dbh->quote($value) . ", ";
+            }
+            elsif ($key =~ /^datetime_(reg|create)$/) {
+                $keys .= $quote_key . $key . $quote_key . ", ";
+
+                my $dt = DateTime->now;
+                $dt->set_time_zone($self->qinu->conf->{time_zone});
+                my $datetime_reg = $dt->ymd . " " . $dt->hms;
+                $vals .= $dbh->quote($datetime_reg) . ", ";
+                $self->{datetime_reg} = $datetime_reg;
+            }
+        }
+        foreach my $key (@$fields_num) {
+            if (defined $data->{$key}) {
+                $keys .= $quote_key . $key . $quote_key . ", ";
+    
+                my $value = $data->{$key};
+    		$vals .= $value . ", ";
+            }
+        }
+        foreach my $key (@$fields_bool) {
+            if (defined $data->{$key} && $data->{$key}) {
+                $keys .= $quote_key . $key . $quote_key . ", ";
+                if ($data->{$key}) {
+                    $vals .= "TRUE, ";
+                }
+                else {
+                    $vals .= "FALSE, ";
+                }
+            }
+        }
+
+        foreach my $key (@$add_data_string) {
+            if (defined $data->{$key}) {
+                $keys .= $quote_key . $key . $quote_key . ", ";
+
+                my $v_data = '';
+                if (ref $data->{$key} eq 'ARRAY') {
+                    foreach my $v_value (@{$data->{$key}}) {
+                        $v_data .= '+' . $v_value;
+                    }
+                    if ($v_data ne '') {
+                        $v_data .= '+';
+                    }
+                }
+                else {
+                    $v_data = $data->{$key};
+                }
+
+                my $value = $v_data;
+                $vals .= $dbh->quote($value) . ", ";
+            }
+        }
+        foreach my $key (@$add_data_num) {
+            if (defined $data->{$key}) {
+                $keys .= $quote_key . $key . $quote_key . ", ";
+
+                my $value = $data->{$key};
+                $vals .= $value . ", ";
+            }
+        }
+        foreach my $key (@$add_data_bool) {
+            if (defined $data->{$key}) {
+                $keys .= $quote_key . $key . $quote_key . ", ";
+                if ($data->{$key}) {
+                    $vals .= "TRUE, ";
+                }
+                else {
+                    $vals .= "FALSE, ";
+                }
+            }
+        }
+
+        foreach my $key (@$fields_datetime) {
+            $keys .= $quote_key . $key . $quote_key . ", ";
+
+            if (
+                defined $data->{$key . '_year'} && $data->{$key . '_year'} ne '' &&
+                defined $data->{$key . '_month'} && $data->{$key . '_month'} ne '' &&
+                defined $data->{$key . '_day'} && $data->{$key . '_day'} ne '' && 
+                defined $data->{$key . '_hour'} && $data->{$key . '_hour'} ne '' &&
+                defined $data->{$key . '_minute'} && $data->{$key . '_minute'} ne '' && 
+                defined $data->{$key . '_second'} && $data->{$key . '_second'} ne ''
+            ) {
+                $vals .= "'" . sprintf('%04d', $data->{$key . '_year'}) . "-" . sprintf('%02d', $data->{$key . '_month'}) . "-" . sprintf('%02d', $data->{$key . '_day'}) . " " . sprintf('%02d', $data->{$key . '_hour'}) . ":" . sprintf('%02d', $data->{$key . '_minute'}) . ":" . sprintf('%02d', $data->{$key . '_second'}) . "', ";
+            }
+            else {
+                $vals .= "NULL, ";
+            }
+        }
+
+        foreach my $key (@$fields_date) {
+            $keys .= $quote_key . $key . $quote_key . ", ";
+
+            if (
+                defined $data->{$key . '_year'} && $data->{$key . '_year'} ne '' &&
+                defined $data->{$key . '_month'} && $data->{$key . '_month'} ne '' &&
+                defined $data->{$key . '_day'} && $data->{$key . '_day'} ne ''
+            ) {
+                $vals .= "'" . sprintf('%04d', $data->{$key . '_year'}) . "-" . sprintf('%02d', $data->{$key . '_month'}) . "-" . sprintf('%02d', $data->{$key . '_day'}) . "', ";
+            }
+            else {
+                $vals .= "NULL, ";
+            }
+        }
+
+        foreach my $key (@$fields_time) {
+            $keys .= $quote_key . $key . $quote_key . ", ";
+
+            if (
+                defined $data->{$key . '_hour'} && $data->{$key . '_hour'} ne '' &&
+                defined $data->{$key . '_minute'} && $data->{$key . '_minute'} ne '' &&
+                defined $data->{$key . '_second'} && $data->{$key . '_second'} ne ''
+            ) {
+                $vals .= "'" . sprintf('%02d', $data->{$key . '_hour'}) . ":" . sprintf('%02d', $data->{$key . '_minute'}) . ":" . sprintf('%02d', $data->{$key . '_second'}) . "', ";
+            }
+            else {
+                $vals .= "NULL, ";
+            }
+        }
+
+        if ($keys || $vals) {
+            $keys = substr($keys, 0, -2);
+            $vals = substr($vals, 0, -2);
+        }
+        $sql = $sql . " (" . $keys . ") VALUES(" . $vals . ")";
+    }
+    elsif ($type =~ /^update$/) {
+        $sql = "UPDATE " . $quote_key . $table_name . $quote_key . " SET ";
+        foreach my $key (@$fields_string) {
+            if ($key =~ /^datetime_(reg|create)$/) {
+                next;
+            }
+
+            if (defined $data->{$key}) {
+                my $v_data = '';
+
+                if (ref $data->{$key} eq 'ARRAY') {
+                    foreach my $v_value (@{$data->{$key}}) {
+                        $v_data .= '+' . $v_value;
+                    }
+                    if ($v_data ne '') {
+                        $v_data .= '+';
+                    }
+                }
+                else {
+                    $v_data = $data->{$key};
+                }
+
+                $sql .= $quote_key . $key . $quote_key . "=";
+
+                my $value = $v_data;
+                $sql .= $dbh->quote($value) . ", ";
+            }
+            elsif ($key eq 'datetime_update') {
+                $sql .= $quote_key . $key . $quote_key . "=";
+
+                my $dt = DateTime->now;
+                $dt->set_time_zone($self->qinu->conf->{time_zone});
+                my $datetime_update = $dt->ymd . " " . $dt->hms;
+                $sql .= "'" . $datetime_update . "', ";
+            }
+        }
+        foreach my $key (@$fields_num) {
+            if (defined $data->{$key}) {
+                $sql .= $quote_key . $key . $quote_key . "=";
+    
+                my $value = $data->{$key};
+                $sql .= $value . ", ";
+            }
+        }
+        foreach my $key (@$fields_bool) {
+            if (defined $data->{$key}) {
+                $sql .= $quote_key . $key . $quote_key . "=";
+                if (defined $data->{$key} && $data->{$key}) {
+                    $sql .= "TRUE, ";
+                }
+                else {
+                    $sql .= "FALSE, ";
+                }
+            }
+        }
+
+        foreach my $key (@$add_data_string) {
+            if (defined $data->{$key}) {
+                $sql .= $quote_key . $key . $quote_key . "=";
+                my $v_data = '';
+
+                if (ref $data->{$key} eq 'ARRAY') {
+                    foreach my $v_value (@{$data->{$key}}) {
+                        $v_data .= '+' . $v_value;
+                    }
+                    if ($v_data ne '') {
+                        $v_data .= '+';
+                    }
+                }
+                else {
+                    $v_data = $data->{$key};
+                }
+
+                $sql .= $quote_key . $key . $quote_key . "=";
+
+                my $value = $v_data;
+                $sql .= $dbh->quote($value) . ", ";
+            }
+        }
+        foreach my $key (@$add_data_num) {
+            if (defined $data->{$key}) {
+                $sql .= $quote_key . $key . $quote_key . "=";
+
+                my $value = $data->{$key};
+                $sql .= $value . ", ";
+            }
+        }
+        foreach my $key (@$add_data_bool) {
+            if (defined $data->{$key}) {
+                $sql .= $quote_key . $key . $quote_key . "=";
+                if ($data->{$key}) {
+                    $sql .= "TRUE, ";
+                }
+                else {
+                    $sql .= "FALSE, ";
+                }
+            }
+        }
+
+        foreach my $key (@$fields_datetime) {
+            if (
+                defined $data->{$key . '_year'} && $data->{$key . '_year'} ne '' &&
+                defined $data->{$key . '_month'} && $data->{$key . '_month'} ne '' &&
+                defined $data->{$key . '_day'} && $data->{$key . '_day'} ne '' &&
+                defined $data->{$key . '_hour'} && $data->{$key . '_hour'} ne '' &&
+                defined $data->{$key . '_minute'} && $data->{$key . '_minute'} ne '' &&
+                defined $data->{$key . '_second'} && $data->{$key . '_second'} ne ''
+            ) {
+                $sql .= $quote_key . $key . $quote_key . " = '" . sprintf('%04d', $data->{$key . '_year'}) . "-" . sprintf('%02d', $data->{$key . '_month'}) . "-" . sprintf('%02d', $data->{$key . '_day'}) . " " . sprintf('%02d', $data->{$key . '_hour'}) . ":" . sprintf('%02d', $data->{$key . '_minute'}) . ":" . sprintf('%02d', $data->{$key . '_second'}) . "', ";
+            }
+            else {
+                $sql .= $quote_key . $key . $quote_key . " = NULL, ";
+            }
+        }
+
+        foreach my $key (@$fields_date) {
+            if (
+                defined $data->{$key . '_year'} && $data->{$key . '_year'} ne '' &&
+                defined $data->{$key . '_month'} && $data->{$key . '_month'} ne '' &&
+                defined $data->{$key . '_day'} && $data->{$key . '_day'} ne ''
+            ) {
+                $sql .= $quote_key . $key . $quote_key . " = '" . sprintf('%04d', $data->{$key . '_year'}) . "-" . sprintf('%02d', $data->{$key . '_month'}) . "-" . sprintf('%02d', $data->{$key . '_day'}) . "', ";
+            }
+            else {
+                $sql .= $quote_key . $key . $quote_key . " = NULL, ";
+            }
+        }
+
+        foreach my $key (@$fields_time) {
+            if (
+                defined $data->{$key . '_hour'} && $data->{$key . '_hour'} ne '' &&
+                defined $data->{$key . '_minute'} && $data->{$key . '_minute'} ne '' &&
+                defined $data->{$key . '_second'} && $data->{$key . '_second'} ne ''
+            ) {
+                $sql .= $quote_key . $key . $quote_key . " = '" . sprintf('%02d', $data->{$key . '_hour'}) . ":" . sprintf('%02d', $data->{$key . '_minute'}) . ":" . sprintf('%02d', $data->{$key . '_second'}) . "', ";
+            }
+            else {
+                $sql .= $quote_key . $key . $quote_key . " = NULL, ";
+            }
+        }
+
+        if ($sql =~ /^.*, $/) {
+            $sql = substr($sql, 0, -2);
+        }
+    }
+
+    return $sql;
 }
 
 1;

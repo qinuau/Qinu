@@ -1,0 +1,23 @@
+use feature qw(:5.10);
+use strict;
+use warnings;
+
+use CGI::Carp qw(fatalsToBrowser);
+use Data::Dumper;
+use Qinu::PSGI;
+
+# set stage type.
+my $type_stage = 'development';
+#my $type_stage = 'product';
+
+my %conf = (
+    config_yaml => '[% dir_app %]/app/conf/conf_' . $type_stage . '.yml',
+);
+
+my $qinu = new Qinu::PSGI(%conf);
+sub {
+    my $env = shift;
+
+    $qinu->run(env => $env);
+}
+

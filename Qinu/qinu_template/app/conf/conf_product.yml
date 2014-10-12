@@ -1,0 +1,37 @@
+conf:
+  use_lib: $conf->{lib_path}, $conf->{lib_path} . '/controller'
+  stage: 'development'
+  protocol_secure: 'https'
+  cookie_domain: ''
+  session_type: File
+  convert_path: ''
+  montage_path: ''
+  lib_path: ''
+  dir_template_variable: ''
+  db_log: ''
+  dbd: 'mysql'
+  db_name: ''
+  db_user: ''
+  db_passwd: ''
+  db_host: 'localhost'
+  db_port: 3306
+  db_encoding: 'utf8'
+  transaction: 0
+  #db_logging_f: 1
+  #cookie_expire: 'Thr,31-Dec-2037 00:00:00'
+  max_upload_file_size_default: 5120000
+  file_magic_mime: ''
+  file_mime_types: ''
+  mail_conf: {
+    host: 'localhost',
+    from: '',
+    from_name: '',
+    #user: '',
+    #password: '',
+    port: 25, 
+    type: 'text/plane'
+    #tls: 1
+  }
+  css: ['']
+  js_header: ['']
+  app: ['Main']

@@ -1,5 +1,6 @@
 package Qinu::PSGI;
 
+use Data::Dumper;
 use Qinu;
 use base qw(Class::Accessor::Fast);
 __PACKAGE__->mk_accessors(qw(qinu));
@@ -18,6 +19,10 @@ sub new {
 sub run {
     my ($self, %args) = @_;
 
+    if (defined $args{env} && %{$args{env}}) {
+        %ENV = (%ENV, %{$args{env}});
+    }
+
     my $qinu;
     if (defined $self->{config} && $self->{config}) {
         my $config = $self->{config};
@@ -33,16 +38,27 @@ sub run {
     }
 
     my $content_type = "";
-    if (defined $args{'Content-Type'} && $args{'Content-Type'} ne "") {
+    my $header;
+    if (defined $self->qinu->{psgi_header}) {
+        $header = $self->qinu->{psgi_header};
+    }
+    elsif (defined $self->qinu->{'Content-Type'} && $self->qinu->{'Content-Type'} ne '') {
+        $content_type = $self->qinu->{'Content-Type'};
+    }
+    elsif (defined $args{'Content-Type'} && $args{'Content-Type'} ne "") {
         $content_type = $args{'Content-Type'};
     }
     else {
         $content_type = 'text/html';
     }
 
+    if ($content_type ne '') {
+        $header{'Content-Type'} = $content_type;
+    }
+
     return [
         200,
-        ['Content-Type' => $content_type],
+        [%$header],
         [$self->qinu->result_content],
     ];
 }

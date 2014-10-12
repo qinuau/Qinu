@@ -1,5 +1,7 @@
 package Qinu::App;
 
+use Data::Dumper;
+
 sub new {
     my ($self, %args) = @_;
 
