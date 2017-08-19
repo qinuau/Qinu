@@ -40,7 +40,7 @@ sub get_data {
     
     $res =  $ua->get($url);
     my $html =  $res->decoded_content;
-    
+
     $tree = HTML::TreeBuilder->new_from_content($html);
     
     my @data_fix;
@@ -62,10 +62,21 @@ sub get_data {
                 my $detail_each;
 
                 $title_each_tmp = $div->as_text;
+
                 if (Encode::is_utf8($title_each_tmp)) {
                     $title_each_tmp = Encode::encode_utf8($title_each_tmp);
                 }
-                my ($title_each, $detail_each) = split ' ... ', $title_each_tmp;
+
+                my $abbreviation_code = '';
+
+                if ($title_each_tmp =~ /…/) {
+                    $abbreviation_code = '…';
+                }
+                elsif ($title_each_tmp =~ / ... /) {
+                    $abbreviation_code = ' ... ';
+                }
+
+                my ($title_each, $detail_each) = split $abbreviation_code, $title_each_tmp;
     
                 my @spans = $div->look_down("_tag", "span", "class", "d");
                 $date_each = $spans[0]->as_text;
